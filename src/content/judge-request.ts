@@ -1,6 +1,6 @@
 export const judgeRequestNotice = {
-  enabled: false,
-  title: "Shelfmark is ready for review",
-  body: "Judge-requested changes appear here after Corvin opens a pull request.",
-  updatedBy: "Corvin",
+  enabled: true,
+  title: "Judge-requested update",
+  body: "Make the Shelfmark empty state clearer for product managers reviewing saved research.",
+  updatedBy: "corvin-cloud-test",
 };
