@@ -1,0 +1,68 @@
+type AnalyticsProperties = Record<string, string | number | boolean | undefined>;
+
+declare global {
+  interface Window {
+    pendo?: {
+      initialize?: (input: unknown) => void;
+      identify?: (input: unknown) => void;
+      track?: (name: string, properties?: AnalyticsProperties) => void;
+    };
+  }
+}
+
+export function createAnalyticsEvent(name: string, properties: AnalyticsProperties = {}) {
+  return {
+    name,
+    properties: {
+      app: "shelfmark",
+      ...Object.fromEntries(Object.entries(properties).filter(([, value]) => value !== undefined)),
+    },
+  };
+}
+
+export function initializeProductAnalytics(visitor: { id: string; email?: string; name?: string } | null) {
+  const apiKey = import.meta.env.VITE_NOVUS_PENDO_API_KEY as string | undefined;
+  if (!apiKey || typeof window === "undefined") return;
+
+  if (!window.pendo) {
+    installPendoSnippet(apiKey);
+  }
+
+  window.pendo?.initialize?.({
+    visitor: visitor
+      ? {
+          id: visitor.id,
+          email: visitor.email,
+          full_name: visitor.name,
+        }
+      : undefined,
+    account: {
+      id: "shelfmark-public",
+      name: "Shelfmark",
+    },
+  });
+}
+
+export function trackProductEvent(name: string, properties: AnalyticsProperties = {}) {
+  if (typeof window === "undefined") return;
+  const event = createAnalyticsEvent(name, properties);
+  window.pendo?.track?.(event.name, event.properties);
+}
+
+function installPendoSnippet(apiKey: string) {
+  const methods = ["initialize", "identify", "updateOptions", "pageLoad", "track"];
+  const pendoStub: Record<string, unknown> = {};
+  for (const method of methods) {
+    pendoStub[method] = (...args: unknown[]) => {
+      const queue = (pendoStub._q as unknown[]) ?? [];
+      queue.push([method, ...args]);
+      pendoStub._q = queue;
+    };
+  }
+
+  window.pendo = pendoStub as Window["pendo"];
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://cdn.pendo.io/agent/static/${apiKey}/pendo.js`;
+  document.head.appendChild(script);
+}
