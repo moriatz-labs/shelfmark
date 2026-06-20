@@ -80,6 +80,7 @@ export default function App() {
 function ShelfmarkWorkspace() {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const supabaseConfigured = hasSupabaseConfig();
   const [client, setClient] = useState<ShelfmarkClient | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -88,7 +89,7 @@ function ShelfmarkWorkspace() {
   const [query, setQuery] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(supabaseConfigured);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<SaveForm>(emptyForm);
 
@@ -106,10 +107,7 @@ function ShelfmarkWorkspace() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !hasSupabaseConfig()) {
-      setLoading(false);
-      return;
-    }
+    if (!user || !supabaseConfigured) return;
 
     let cancelled = false;
     async function load() {
@@ -141,7 +139,7 @@ function ShelfmarkWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [getToken, user]);
+  }, [getToken, supabaseConfigured, user]);
 
   const summary = useMemo(() => summarizeLibrary(bookmarks), [bookmarks]);
   const visibleBookmarks = useMemo(
@@ -195,7 +193,7 @@ function ShelfmarkWorkspace() {
     });
   }
 
-  if (!hasSupabaseConfig()) return <SetupScreen missing="Supabase" />;
+  if (!supabaseConfigured) return <SetupScreen missing="Supabase" />;
   if (loading) return <LoadingScreen />;
 
   return (
