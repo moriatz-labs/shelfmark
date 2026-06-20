@@ -151,7 +151,7 @@ jobs:
       - name: Open pull request
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CORVIN_GITHUB_TOKEN }}
           BRANCH_NAME: ${{ steps.branch.outputs.branch }}
         shell: bash
         run: |
