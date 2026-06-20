@@ -56,6 +56,8 @@ const emptyForm: SaveForm = {
   isFavorite: false,
 };
 
+const trackedLoginIds = new Set<string>();
+
 export default function App() {
   const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
   if (!clerkKey) return <SetupScreen missing="Clerk" />;
@@ -103,7 +105,12 @@ function ShelfmarkWorkspace() {
           }
         : null,
     );
-    if (user) trackProductEvent("login_completed", { userId: user.id });
+    if (user && !trackedLoginIds.has(user.id)) {
+      trackedLoginIds.add(user.id);
+      trackProductEvent("login_completed", {
+        email: user.primaryEmailAddress?.emailAddress,
+      });
+    }
   }, [user]);
 
   useEffect(() => {
@@ -167,10 +174,12 @@ function ShelfmarkWorkspace() {
       setBookmarks((current) => [bookmark, ...current]);
       setForm({ ...emptyForm, collectionId: form.collectionId });
       trackProductEvent("bookmark_created", {
-        userId: user.id,
         collectionId: bookmark.collectionId,
         domain: bookmark.domain,
         tagCount: bookmark.tags.length,
+        hasNote: Boolean(form.note.trim()),
+        hasDescription: Boolean(form.description.trim()),
+        isFavorite: bookmark.isFavorite,
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Bookmark could not be saved.");
@@ -188,8 +197,10 @@ function ShelfmarkWorkspace() {
     const updated = await updateBookmarkFlags(client, bookmark, next);
     setBookmarks((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     trackProductEvent(key === "isFavorite" ? "bookmark_favorited" : "bookmark_archived", {
-      userId: bookmark.userId,
       domain: bookmark.domain,
+      bookmarkId: bookmark.id,
+      collectionId: bookmark.collectionId,
+      newState: !bookmark[key],
     });
   }
 
@@ -229,7 +240,7 @@ function ShelfmarkWorkspace() {
                 active={activeCollectionId === collection.id}
                 onClick={() => {
                   setActiveCollectionId(collection.id);
-                  trackProductEvent("collection_selected", { userId: user?.id, collectionId: collection.id });
+                  trackProductEvent("collection_selected", { collectionId: collection.id, collectionName: collection.name });
                 }}
               >
                 {collection.name}
@@ -247,7 +258,7 @@ function ShelfmarkWorkspace() {
                 active={activeTag === tag}
                 onClick={() => {
                   setActiveTag(tag);
-                  trackProductEvent("tag_filter_applied", { userId: user?.id, tag });
+                  trackProductEvent("tag_filter_applied", { tag });
                 }}
               >
                 #{tag}
@@ -326,7 +337,12 @@ function ShelfmarkWorkspace() {
                   onChange={(event) => {
                     setQuery(event.target.value);
                     if (event.target.value.trim().length > 2) {
-                      trackProductEvent("search_submitted", { userId: user?.id, queryLength: event.target.value.trim().length });
+                      trackProductEvent("search_submitted", {
+                        queryLength: event.target.value.trim().length,
+                        activeCollectionId,
+                        activeTag,
+                        favoritesOnly,
+                      });
                     }
                   }}
                   placeholder="Search titles, domains, notes, tags"
