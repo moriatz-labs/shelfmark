@@ -21,7 +21,7 @@ export function createAnalyticsEvent(name: string, properties: AnalyticsProperti
 }
 
 export function initializeProductAnalytics(visitor: { id: string; email?: string; name?: string } | null) {
-  const apiKey = import.meta.env.VITE_NOVUS_PENDO_API_KEY as string | undefined;
+  const apiKey = 'ac4dcfc5-5b4a-46a9-8a90-7a1cfdcd35ba';
   if (!apiKey || typeof window === "undefined") return;
 
   if (!window.pendo) {
@@ -50,7 +50,7 @@ export function trackProductEvent(name: string, properties: AnalyticsProperties 
 }
 
 function installPendoSnippet(apiKey: string) {
-  const methods = ["initialize", "identify", "updateOptions", "pageLoad", "track"];
+  const methods = ["initialize", "identify", "updateOptions", "pageLoad", "track", "trackAgent"];
   const pendoStub: Record<string, unknown> = {};
   for (const method of methods) {
     pendoStub[method] = (...args: unknown[]) => {
