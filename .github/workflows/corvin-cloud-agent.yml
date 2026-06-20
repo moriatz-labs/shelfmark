@@ -75,7 +75,7 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Apply visible product change
         shell: bash
