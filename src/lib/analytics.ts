@@ -6,6 +6,7 @@ declare global {
       initialize?: (input: unknown) => void;
       identify?: (input: unknown) => void;
       track?: (name: string, properties?: AnalyticsProperties) => void;
+      trackAgent?: (name: string, properties?: AnalyticsProperties) => void;
     };
   }
 }
@@ -50,7 +51,7 @@ export function trackProductEvent(name: string, properties: AnalyticsProperties 
 }
 
 function installPendoSnippet(apiKey: string) {
-  const methods = ["initialize", "identify", "updateOptions", "pageLoad", "track"];
+  const methods = ["initialize", "identify", "updateOptions", "pageLoad", "track", "trackAgent"];
   const pendoStub: Record<string, unknown> = {};
   for (const method of methods) {
     pendoStub[method] = (...args: unknown[]) => {
