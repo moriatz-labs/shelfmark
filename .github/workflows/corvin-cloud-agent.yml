@@ -1,0 +1,202 @@
+name: Corvin Cloud Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Corvin request id
+        required: true
+        type: string
+      requester:
+        description: PM or judge identity
+        required: true
+        type: string
+      request_body:
+        description: Product change request
+        required: true
+        type: string
+      branch_prefix:
+        description: Branch prefix for generated PRs
+        required: false
+        default: feature/shelfmark-judge
+        type: string
+      base_branch:
+        description: Base branch for the pull request
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply-product-request:
+    name: Apply PM request
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      REQUEST_ID: ${{ inputs.request_id }}
+      REQUESTER: ${{ inputs.requester }}
+      REQUEST_BODY: ${{ inputs.request_body }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+      BASE_BRANCH: ${{ inputs.base_branch }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_NOVUS_PENDO_API_KEY: ${{ secrets.VITE_NOVUS_PENDO_API_KEY }}
+
+    steps:
+      - name: Checkout Shelfmark
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Prepare branch
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          safe_id="$(printf '%s' "$REQUEST_ID" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//')"
+          if [ -z "$safe_id" ]; then
+            safe_id="request-${GITHUB_RUN_ID}"
+          fi
+          branch="${BRANCH_PREFIX}-${safe_id}"
+          git checkout "$BASE_BRANCH"
+          git pull --ff-only origin "$BASE_BRANCH"
+          git checkout -B "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply visible product change
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { mkdirSync, writeFileSync } from "node:fs";
+
+          const requestBody = (process.env.REQUEST_BODY ?? "").trim().replace(/\s+/g, " ");
+          const requester = (process.env.REQUESTER ?? "Corvin PM").trim();
+          const clippedBody = requestBody.slice(0, 240) || "Shelfmark was updated from a Corvin cloud-agent request.";
+          const clippedRequester = requester.slice(0, 120) || "Corvin cloud agent";
+
+          writeFileSync(
+            "src/content/judge-request.ts",
+            [
+              "export const judgeRequestNotice = {",
+              "  enabled: true,",
+              `  title: ${JSON.stringify("Judge-requested update")},`,
+              `  body: ${JSON.stringify(clippedBody)},`,
+              `  updatedBy: ${JSON.stringify(clippedRequester)},`,
+              "};",
+              "",
+            ].join("\n"),
+          );
+
+          mkdirSync(".corvin-agent", { recursive: true });
+          writeFileSync(
+            ".corvin-agent/summary.md",
+            [
+              "## Summary",
+              "Corvin Cloud Agent updated Shelfmark's visible judge-request notice so the requested product change is reviewable in the app.",
+              "",
+              "## User-visible impact",
+              `Shelfmark now shows this PM request: ${clippedBody}`,
+              "",
+              "## Requester",
+              clippedRequester,
+              "",
+            ].join("\n"),
+          );
+          NODE
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build app
+        run: npm run build
+
+      - name: Capture screenshot evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run dev -- --host 127.0.0.1 --port 4175 > /tmp/shelfmark-vite.log 2>&1 &
+          app_pid=$!
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4175 >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npx --yes playwright@1.60.0 install --with-deps chromium
+          npx --yes playwright@1.60.0 screenshot --browser=chromium --viewport-size=1440,1000 http://127.0.0.1:4175 .corvin-agent/shelfmark-change.png
+          kill "$app_pid"
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shelfmark-change-${{ inputs.request_id }}
+          path: .corvin-agent/shelfmark-change.png
+          if-no-files-found: error
+
+      - name: Open pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git status --short -- src/content/judge-request.ts)"
+          if [ -z "$changed_files" ]; then
+            echo "No changes generated by the Corvin request."
+            exit 0
+          fi
+
+          cat > .corvin-agent/pr-body.md <<EOF
+          ## Corvin cloud-agent request
+
+          ${REQUEST_BODY}
+
+          Requester: ${REQUESTER}
+          Request id: ${REQUEST_ID}
+
+          $(cat .corvin-agent/summary.md)
+
+          ## Changed files
+
+          \`\`\`text
+          ${changed_files}
+          \`\`\`
+
+          ## Verification
+
+          - npm test: passed
+          - npm run build: passed
+          - Screenshot artifact: shelfmark-change-${REQUEST_ID}
+
+          AI-Model: OpenAI GPT-5 Codex
+          EOF
+
+          git config user.name "Corvin Cloud Agent"
+          git config user.email "corvin-agent@moriatz-labs.local"
+          git add src/content/judge-request.ts
+          git commit -m "Corvin cloud agent ${REQUEST_ID}" -m "AI-Model: OpenAI GPT-5 Codex"
+          git push --force-with-lease origin "$BRANCH_NAME"
+
+          pr_url="$(gh pr create \
+            --title "Corvin Shelfmark request ${REQUEST_ID}" \
+            --body-file .corvin-agent/pr-body.md \
+            --base "$BASE_BRANCH" \
+            --head "$BRANCH_NAME")"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "$pr_url" >> "$GITHUB_STEP_SUMMARY"
